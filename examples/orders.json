@@ -1,0 +1,9 @@
+[
+  {
+    "order_id": "example-001",
+    "guide": "GUIDE-001",
+    "carrier": "carrier-name",
+    "current_status": "EN TRANSPORTE",
+    "last_movement_at": "2026-07-20T10:00:00+00:00"
+  }
+]

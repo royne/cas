@@ -1,0 +1,8 @@
+# Generic local runtime directory. Keep credentials and account-specific values out of this file.
+
+[workspace]
+# Relative paths are resolved from this configuration file.
+root = "./runtime"
+
+[rules]
+minimum_hours_without_movement = 24

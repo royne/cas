@@ -1,0 +1,41 @@
+from datetime import datetime, timedelta, timezone
+import unittest
+
+from dropi_cas_automation.models import OrderSnapshot
+from dropi_cas_automation.rules import EligibilityPolicy, evaluate_order
+
+
+def make_order(*, status="EN BODEGA DESTINO", hours=25, guide="034000000001"):
+    return OrderSnapshot(
+        order_id="order-1",
+        guide=guide,
+        carrier="carrier-a",
+        current_status=status,
+        last_movement_at=datetime.now(timezone.utc) - timedelta(hours=hours),
+    )
+
+
+class EligibilityRuleTests(unittest.TestCase):
+    def test_marks_open_order_over_threshold_as_eligible(self):
+        decision = evaluate_order(make_order(), EligibilityPolicy())
+
+        self.assertEqual(decision.status, "eligible")
+        self.assertGreaterEqual(decision.hours_without_movement, 25)
+
+    def test_excludes_closed_status_even_when_old(self):
+        decision = evaluate_order(make_order(status="ENTREGADO", hours=72), EligibilityPolicy())
+
+        self.assertEqual(decision.status, "excluded_status")
+
+    def test_requires_a_guide_and_a_real_last_movement(self):
+        missing_guide = make_order(guide="")
+        missing_movement = OrderSnapshot(
+            order_id="order-2",
+            guide="034000000002",
+            carrier="carrier-a",
+            current_status="EN TRANSPORTE",
+            last_movement_at=None,
+        )
+
+        self.assertEqual(evaluate_order(missing_guide, EligibilityPolicy()).status, "missing_guide")
+        self.assertEqual(evaluate_order(missing_movement, EligibilityPolicy()).status, "missing_movement")

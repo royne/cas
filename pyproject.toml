@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dropi-cas-automation"
+version = "0.1.0"
+description = "Portable, configuration-driven logistics CAS automation core"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "LicenseRef-Proprietary"
+dependencies = ["openpyxl>=3.1"]
+
+[project.scripts]
+dropi-cas = "dropi_cas_automation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.unittest]
+start-directory = "tests"

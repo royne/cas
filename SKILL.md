@@ -11,9 +11,12 @@ Use this skill when a user asks to install or extend the standalone package in a
 
 ## Safety boundary
 
-The base package is local-only. It can initialize its own workspace and evaluate local JSON, but it does not connect to a website, create cases, upload evidence, send messages, or schedule jobs.
+The package has local-only commands, read-only browser commands, and protected write commands. A read flag never authorizes writing.
 
-The `diagnose-dropi` command is a narrow exception: it is a real browser-harness read-only session check and requires `--allow-external-read`. It must never be used as implicit authorization for external writes.
+- Reads require `--allow-external-read`.
+- Creating CAS or sending follow-ups requires `--execute` and `--allow-external-writes`.
+- A dry-run never creates cases, uploads evidence, or sends messages.
+- Start every new installation with one reviewed guide (`--limit 1`) before any batch execution.
 
 Never place passwords, tokens, cookies, browser profiles, channel identifiers, customer data, or operational databases in the package repository or its example configuration.
 
@@ -29,25 +32,43 @@ cp config.example.toml config.toml
 
 `doctor` only parses configuration. `init` creates only the directories and SQLite database under `[workspace].root`.
 
-## Read-only browser diagnostic
+## Normal operating sequence
 
-Only after the user explicitly authorizes a browser read and has signed in manually:
+Only after the user explicitly authorizes browser reads and has signed in manually:
 
 ```bash
 .venv/bin/dropi-cas diagnose-dropi --config ./config.toml --allow-external-read
+.venv/bin/dropi-cas sync --config ./config.toml --allow-external-read
+.venv/bin/dropi-cas refresh-history --config ./config.toml --guide GUIDE --allow-external-read
+.venv/bin/dropi-cas candidates --config ./config.toml
+.venv/bin/dropi-cas run --config ./config.toml --dry-run
+.venv/bin/dropi-cas followups --config ./config.toml --dry-run
+.venv/bin/dropi-cas report --config ./config.toml
 ```
 
-This command may open/switch to the orders page. It returns only URL/login/orders visibility metadata and must not print or persist browser tokens, cookies, localStorage, or customer data.
+`sync` downloads the official XLSX to the package workspace. `refresh-history` reads one order's visible history. `run --dry-run` and `followups --dry-run` are local audits and must remain non-destructive.
 
-## Local evaluation
+## Real external writes
 
-Prepare an input JSON array with `order_id`, `guide`, `carrier`, `current_status`, and `last_movement_at` fields, then run:
+Only after a user reviews the dry-run result and explicitly approves the affected order:
 
 ```bash
-.venv/bin/dropi-cas evaluate --config ./config.toml --input ./orders.json
+.venv/bin/dropi-cas run --config ./config.toml --execute --limit 1 \
+  --allow-external-read --allow-external-writes \
+  --case-service-type-id "YOUR_SERVICE_TYPE_ID"
+
+.venv/bin/dropi-cas followups --config ./config.toml --execute \
+  --allow-external-read --allow-external-writes \
+  --case-service-type-id "YOUR_SERVICE_TYPE_ID"
 ```
 
-## Before adding any external adapter
+Before creating a CAS, the package refreshes history, validates eligibility, captures visible evidence, and checks for an existing case. Follow-ups refresh history and require an active-case confirmation before messaging.
+
+## Scheduler
+
+The package does not schedule itself. A user may later configure Hermes Cron or another scheduler to run safe dry-runs or explicitly approved operating commands. Never schedule external writes without a separate review and authorization policy.
+
+## Before adding or changing an external adapter
 
 1. Confirm the data source and whether automation is allowed.
 2. Keep credentials outside source control.

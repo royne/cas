@@ -7,7 +7,7 @@ Portable, account-neutral Dropi CAS automation package. It owns its workspace, S
 - Installs in its own Python virtual environment.
 - Reads a private TOML configuration file.
 - Creates only its configured workspace: SQLite data, evidence, and report directories.
-- Downloads and imports the official orders XLSX.
+- Imports an official orders XLSX or, when configured, a fresh ecommerce360 MCP order snapshot.
 - Reads a guide's visible order history and stores real movements.
 - Evaluates local candidates against a configurable no-movement threshold.
 - Validates remote eligibility, captures evidence, creates a CAS through the official UI, records it locally, and supports protected follow-up sending.
@@ -83,6 +83,62 @@ Without the opt-in flag, the command stops before starting a browser runner:
 ```
 
 The result only includes the page URL and booleans for login/orders visibility. It never prints browser storage, cookies, or tokens.
+
+## Order source: Excel or MCP
+
+Select the input source in the private `config.toml`:
+
+```toml
+[orders_source]
+# Use "excel" if this installation does not have ecommerce360 MCP access.
+provider = "excel"
+
+# Use this alternative only after ecommerce360 MCP was connected in Hermes:
+# provider = "mcp"
+# mcp_config_path = "~/.hermes/config.yaml"
+# mcp_window_days = 25
+```
+
+### Excel mode — works for every installation
+
+```toml
+[orders_source]
+provider = "excel"
+```
+
+`sync` uses the authenticated Dropi browser session to request and import the official XLSX. Keep the browser logged in before running it.
+
+### MCP mode — faster fresh snapshot
+
+MCP access is optional. It must be enabled by the installation owner in their private Hermes setup, not copied from another account.
+
+1. Install and configure Hermes on that computer.
+2. Connect the owner's authenticated `ecommerce360` MCP server in Hermes.
+3. Verify the connection without exposing credentials:
+
+```bash
+hermes mcp list
+hermes mcp test ecommerce360
+```
+
+4. In the portable package's private `config.toml`, select MCP and point only to that local Hermes config:
+
+```toml
+[orders_source]
+provider = "mcp"
+mcp_config_path = "~/.hermes/config.yaml"
+mcp_window_days = 25
+```
+
+5. Run the normal read-only sync:
+
+```bash
+.venv/bin/dropi-cas sync --config ./config.toml --allow-external-read
+```
+
+MCP mode reads the current order snapshot, imports it into the package's own SQLite and rejects a truncated range. It does not open the browser for the import and it never exports or prints credentials. The TOML contains only a local path; the MCP token remains in the owner's private Hermes configuration.
+
+Both sources feed the same local SQLite and the same subsequent history/CAS workflow. MCP data is an initial snapshot: actual case execution still refreshes the visible guide history before validation, evidence and creation.
 
 ## Operational commands
 

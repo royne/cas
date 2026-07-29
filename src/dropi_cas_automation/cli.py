@@ -20,6 +20,7 @@ from .followup import DropiFollowupSender, followup_message
 from .followup_store import load_due_followups, mark_followup_sent, mark_followup_skipped
 from .history_reader import DropiHistoryReader
 from .history_refresh import refresh_guide_history
+from .mcp_orders import fetch_mcp_orders, import_mcp_orders
 from .models import OrderSnapshot
 from .orders_import import import_orders_xlsx
 from .report_download import OrdersReportDownloader
@@ -145,10 +146,18 @@ def command_candidates(args: argparse.Namespace) -> int:
 def command_sync(args: argparse.Namespace) -> int:
     config = _setup(args.config)
     if not args.allow_external_read:
-        raise PermissionError("sync requires --allow-external-read because it requests a report from Dropi.")
+        raise PermissionError("sync requires --allow-external-read because it reads the configured external order source.")
+    if config.orders_source == "mcp":
+        if config.mcp_config_path is None:
+            raise ValueError("[orders_source].mcp_config_path is required when provider is 'mcp'.")
+        orders, meta = fetch_mcp_orders(config.mcp_config_path, window_days=config.mcp_window_days)
+        source_ref = f"mcp:{(meta.get('range') or {}).get('from', '?')}:{(meta.get('range') or {}).get('until', '?')}"
+        result = import_mcp_orders(config.database_path, orders, source_ref=source_ref)
+        print(json.dumps({"ok": True, "source": "mcp", "meta": meta, **result}))
+        return 0
     downloaded = OrdersReportDownloader(BrowserHarnessRunner(command=args.browser_command), config.workspace_root / "downloads").download(allow_external_read=True)
     result = import_orders_xlsx(config.database_path, downloaded)
-    print(json.dumps({"ok": True, "report_path": str(downloaded), **result}))
+    print(json.dumps({"ok": True, "source": "excel", "report_path": str(downloaded), **result}))
     return 0
 
 

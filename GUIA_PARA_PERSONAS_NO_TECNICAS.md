@@ -31,7 +31,7 @@ Cada instalación crea su propia carpeta de trabajo llamada `runtime`.
 Dentro de ella guarda:
 
 - una base de datos local (`automation.sqlite3`);
-- reportes de pedidos descargados;
+- un snapshot de pedidos importado desde Excel o, si está habilitado, desde MCP;
 - evidencias capturadas para CAS;
 - resultados de evaluaciones y seguimientos.
 
@@ -75,15 +75,60 @@ dropi-cas diagnose-dropi --config ./config.toml --allow-external-read
 
 Este paso solo revisa la sesión. No crea ni modifica nada.
 
-### 3. Descargar e importar pedidos
+### 3. Elegir cómo traer los pedidos: Excel o MCP
 
-El paquete solicita el reporte oficial de pedidos de Dropi, lo descarga a su propia carpeta e importa la información a su base local.
+Cada instalación puede usar una de dos fuentes. La elección se hace en el archivo privado `config.toml`.
+
+#### Opción A — Excel: disponible para todos
+
+Esta es la opción predeterminada. La persona inicia sesión en Dropi desde el navegador y el paquete solicita el informe oficial de pedidos.
+
+```toml
+[orders_source]
+provider = "excel"
+```
+
+Después ejecuta:
 
 ```bash
 dropi-cas sync --config ./config.toml --allow-external-read
 ```
 
-Esto es una lectura: no modifica pedidos, no crea chats y no envía mensajes.
+El paquete descarga el Excel a su propia carpeta e importa los pedidos a su base local. No crea CAS, no crea chats y no envía mensajes.
+
+#### Opción B — MCP: datos frescos sin descargar Excel
+
+Esta opción solo sirve para personas o empresas que ya tienen acceso al MCP `ecommerce360` en Hermes. No se comparte una cuenta MCP entre instalaciones.
+
+Antes de activarla, la persona responsable debe:
+
+1. Tener Hermes instalado y configurado en su computador.
+2. Conectar su propia cuenta MCP `ecommerce360` dentro de Hermes.
+3. Confirmar que la conexión responde:
+
+```bash
+hermes mcp list
+hermes mcp test ecommerce360
+```
+
+4. Cambiar el `config.toml` privado del paquete:
+
+```toml
+[orders_source]
+provider = "mcp"
+mcp_config_path = "~/.hermes/config.yaml"
+mcp_window_days = 25
+```
+
+5. Ejecutar el mismo comando de lectura:
+
+```bash
+dropi-cas sync --config ./config.toml --allow-external-read
+```
+
+Con MCP, el paquete consulta los pedidos actuales, los guarda en su propia base local y no abre el navegador para esa importación. Si el MCP informa que el rango quedó incompleto, el paquete se detiene y no importa datos parciales.
+
+El archivo `config.toml` solo apunta a la configuración privada de Hermes. No debe copiar tokens, contraseñas ni datos de otra empresa dentro del paquete.
 
 ### 4. Revisar el historial real de una guía
 

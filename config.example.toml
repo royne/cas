@@ -6,3 +6,15 @@ root = "./runtime"
 
 [rules]
 minimum_hours_without_movement = 24
+
+[orders_source]
+# "excel" works with any authenticated Dropi browser session.
+# "mcp" uses an already configured ecommerce360 MCP connection.
+provider = "excel"
+
+# Only required when provider = "mcp". This is a private local Hermes
+# config path; it is never bundled, committed or printed by this package.
+# mcp_config_path = "~/.hermes/config.yaml"
+
+# Rolling date window requested from MCP when provider = "mcp".
+mcp_window_days = 25

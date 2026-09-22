@@ -12,6 +12,10 @@ class AppConfig:
     orders_source: str = "excel"
     mcp_config_path: Path | None = None
     mcp_window_days: int = 25
+    # Dropi-wide CAS metadata for the official "Órdenes sin movimiento" flow.
+    # These are not carrier IDs; the carrier continues to be resolved per order.
+    case_service_type_id: str = "65b527b45f200bc3e64bc3e7"
+    case_ticket_type_id: str = "65c9458bfc9f2b4295bce3bd"
 
     @property
     def database_path(self) -> Path:
@@ -72,12 +76,21 @@ def load_config(path: Path) -> AppConfig:
     window_days = data.get("orders_source", {}).get("mcp_window_days", 25)
     if not isinstance(window_days, int) or window_days <= 0:
         raise ValueError("[orders_source].mcp_window_days must be a positive integer.")
+    cas = data.get("cas", {})
+    service_type_id = cas.get("service_type_id", AppConfig.case_service_type_id)
+    ticket_type_id = cas.get("ticket_type_id", AppConfig.case_ticket_type_id)
+    if not isinstance(service_type_id, str) or not service_type_id.strip():
+        raise ValueError("[cas].service_type_id must be a non-empty string.")
+    if not isinstance(ticket_type_id, str) or not ticket_type_id.strip():
+        raise ValueError("[cas].ticket_type_id must be a non-empty string.")
     return AppConfig(
         workspace_root=workspace_root.resolve(),
         minimum_hours_without_movement=float(threshold),
         orders_source=source,
         mcp_config_path=mcp_path.resolve() if mcp_path else None,
         mcp_window_days=window_days,
+        case_service_type_id=service_type_id.strip(),
+        case_ticket_type_id=ticket_type_id.strip(),
     )
 
 

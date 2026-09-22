@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sqlite3
 from collections import Counter
+from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -181,7 +183,7 @@ def command_run(args: argparse.Namespace) -> int:
     if not (args.allow_external_read and args.allow_external_writes):
         raise PermissionError("run --execute requires both --allow-external-read and --allow-external-writes.")
     runner = BrowserHarnessRunner(command=args.browser_command)
-    validator = DropiCaseValidator(runner, case_service_type_id=args.case_service_type_id)
+    validator = DropiCaseValidator(runner, case_service_type_id=args.case_service_type_id or config.case_service_type_id)
     evidence = EvidenceCapture(runner, config.evidence_dir)
     creator = DropiCaseCreator(runner)
     results = []
@@ -209,10 +211,10 @@ def command_followups(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(json.dumps({"ok": True, "mode": "dry_run", "due_count": len(due), "followups": [{"id": item.id, "guide": item.guide, "chat_id": item.chat_id, "due_at": item.due_at.isoformat(sep=" ")} for item in due]}))
         return 0
-    if not (args.allow_external_read and args.allow_external_writes and args.case_service_type_id):
-        raise PermissionError("followups --execute requires --allow-external-read, --allow-external-writes, and --case-service-type-id.")
+    if not (args.allow_external_read and args.allow_external_writes):
+        raise PermissionError("followups --execute requires both --allow-external-read and --allow-external-writes.")
     runner = BrowserHarnessRunner(command=args.browser_command)
-    validator = DropiCaseValidator(runner, case_service_type_id=args.case_service_type_id)
+    validator = DropiCaseValidator(runner, case_service_type_id=args.case_service_type_id or config.case_service_type_id)
     sender = DropiFollowupSender(runner)
     results = []
     message = followup_message()
@@ -233,6 +235,90 @@ def command_followups(args: argparse.Namespace) -> int:
         results.append({"guide": item.guide, "status": "sent", "chat_id": item.chat_id})
     print(json.dumps({"ok": True, "mode": "execute", "results": results}))
     return 0
+
+
+def _run_operational_step(name: str, handler: Any, arguments: argparse.Namespace) -> dict[str, Any]:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = handler(arguments)
+    raw = output.getvalue().strip()
+    try:
+        result: Any = json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        result = {"raw_output": raw}
+    return {"name": name, "ok": exit_code == 0, "exit_code": exit_code, "result": result}
+
+
+def _write_operational_reports(config: AppConfig, payload: dict[str, Any]) -> tuple[Path, Path]:
+    report = build_report(config.database_path)
+    generated = report["generated_at"]
+    summary = config.reports_dir / "ultimo-resumen.txt"
+    detailed = config.reports_dir / "ultimo-detallado.json"
+    summary.write_text(
+        "\n".join(
+            [
+                "Resumen operativo CAS",
+                f"Generado: {generated}",
+                f"Modo: {payload['mode']}",
+                f"Pedidos en base local: {report['orders']}",
+                f"CAS abiertos: {report['cases_open']}",
+                f"Follow-ups pendientes: {report['followups_pending']}",
+                f"Follow-ups vencidos: {report['followups_due']}",
+                "Pasos: " + ", ".join(f"{step['name']}={'ok' if step['ok'] else 'falló'}" for step in payload["steps"]),
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    detailed.write_text(json.dumps({"report": report, **payload}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return summary, detailed
+
+
+def command_operate(args: argparse.Namespace) -> int:
+    """Run the normal portable lifecycle without exposing implementation flags."""
+    config = _setup(args.config)
+    external = True
+    execute = bool(args.execute)
+    steps = [
+        _run_operational_step(
+            "sync",
+            command_sync,
+            argparse.Namespace(config=args.config, allow_external_read=external, browser_command=args.browser_command),
+        ),
+        _run_operational_step(
+            "cas",
+            command_run,
+            argparse.Namespace(
+                config=args.config,
+                dry_run=not execute,
+                execute=execute,
+                limit=args.limit,
+                allow_external_read=external,
+                allow_external_writes=execute,
+                case_service_type_id=config.case_service_type_id,
+                browser_command=args.browser_command,
+            ),
+        ),
+        _run_operational_step(
+            "followups",
+            command_followups,
+            argparse.Namespace(
+                config=args.config,
+                dry_run=not execute,
+                execute=execute,
+                limit=args.followup_limit,
+                allow_external_read=external,
+                allow_external_writes=execute,
+                case_service_type_id=config.case_service_type_id,
+                browser_command=args.browser_command,
+            ),
+        ),
+    ]
+    payload: dict[str, Any] = {"ok": all(step["ok"] for step in steps), "mode": "execute" if execute else "dry_run", "steps": steps}
+    summary, detailed = _write_operational_reports(config, payload)
+    payload["summary_report"] = str(summary)
+    payload["detailed_report"] = str(detailed)
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0 if payload["ok"] else 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -293,6 +379,15 @@ def build_parser() -> argparse.ArgumentParser:
     followups.add_argument("--case-service-type-id", default="")
     followups.add_argument("--browser-command", default="browser-harness")
     followups.set_defaults(handler=command_followups)
+    operate = commands.add_parser("operate", help="Run sync, CAS and follow-ups with one operational command.")
+    operate.add_argument("--config", required=True)
+    operate_mode = operate.add_mutually_exclusive_group(required=True)
+    operate_mode.add_argument("--dry-run", action="store_true", help="Read and report without creating CAS or sending messages.")
+    operate_mode.add_argument("--execute", action="store_true", help="Create eligible CAS and send eligible follow-ups.")
+    operate.add_argument("--limit", type=int, default=10, help="Maximum CAS candidates in this run (default: 10).")
+    operate.add_argument("--followup-limit", type=int, default=120, help="Maximum due follow-ups to audit (default: 120).")
+    operate.add_argument("--browser-command", default="browser-harness")
+    operate.set_defaults(handler=command_operate)
     return parser
 
 

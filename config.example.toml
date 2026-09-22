@@ -8,13 +8,17 @@ root = "./runtime"
 minimum_hours_without_movement = 24
 
 [orders_source]
-# "excel" works with any authenticated Dropi browser session.
-# "mcp" uses an already configured ecommerce360 MCP connection.
+# "excel" is the normal portable mode. It only needs the owner logged in to Dropi.
+# "mcp" is optional for installations that already have their own ecommerce360 connection.
 provider = "excel"
 
-# Only required when provider = "mcp". This is a private local Hermes
-# config path; it is never bundled, committed or printed by this package.
+# Only required when provider = "mcp". This stays private and is never committed.
 # mcp_config_path = "~/.hermes/config.yaml"
-
-# Rolling date window requested from MCP when provider = "mcp".
 mcp_window_days = 25
+
+[cas]
+# Defaults are preconfigured for Dropi's official "Órdenes sin movimiento" CAS flow.
+# They are NOT carrier IDs. The carrier is detected dynamically from each order.
+# Override only if Dropi changes its global CAS metadata.
+# service_type_id = "..."
+# ticket_type_id = "..."
